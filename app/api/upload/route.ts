@@ -181,7 +181,8 @@ export async function POST(req: NextRequest) {
     const { data: existingItems, error: fetchError } = await supabase
       .from('grn_items')
       .select('grn_no, item_id, manufacture_name')
-      .in('grn_no', grnNos);
+      .in('grn_no', grnNos)
+      .limit(50000);
 
     if (fetchError) throw new Error(`Failed to fetch existing items: ${fetchError.message}`);
 
