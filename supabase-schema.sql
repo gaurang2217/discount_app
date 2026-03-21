@@ -160,7 +160,7 @@ AS $$
       ON sr.manufacture_name = g.manufacture_name AND sr.item_id = g.item_id
     LEFT JOIN manufacturer_rates mr
       ON mr.manufacture_name = g.manufacture_name
-    WHERE g.manufacture_name != '' AND g.grn_date != '' AND g.grn_date IS NOT NULL
+    WHERE g.manufacture_name != '' AND g.grn_date ~ '^\d{4}-\d{2}-\d{2}'
     GROUP BY g.manufacture_name, month, g.item_id, sr.rate_pct, sr.effective_from, mr.rate_pct, mr.effective_from
   ),
   aggregated AS (
@@ -245,7 +245,7 @@ AS $$
     SUM(rec_qty * unit_rate) AS purchase_value,
     COUNT(DISTINCT grn_no) AS grn_count
   FROM grn_items
-  WHERE manufacture_name = p_mfr
+  WHERE manufacture_name = p_mfr AND grn_date ~ '^\d{4}-\d{2}-\d{2}'
   GROUP BY month, item_id, item_name, item_category, item_sub_category
   ORDER BY month DESC, item_name;
 $$;

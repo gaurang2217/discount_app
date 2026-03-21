@@ -16,9 +16,21 @@ function toStr(val: unknown): string {
 }
 
 function parseDate(val: unknown): string {
-  if (!val) return '';
+  if (val === null || val === undefined || val === '') return '';
+  // Excel serial number
+  if (typeof val === 'number') {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+    return '';
+  }
+  // JS Date object
+  if (val instanceof Date) return val.toISOString().split('T')[0];
   const s = String(val).trim();
+  // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
+  // DD/MM/YYYY or D/M/YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   return s;
 }
 
