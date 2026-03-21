@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 export async function GET() {
-  const { data, error } = await supabase.rpc('get_manufacturers_summary');
+  const { data, error } = await supabase.rpc('get_manufacturers_summary').limit(10000);
 
   if (error) {
     console.error('get_manufacturers_summary error:', error);

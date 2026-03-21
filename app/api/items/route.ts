@@ -9,7 +9,8 @@ export async function GET(req: NextRequest) {
   const { data: grnData, error: grnError } = await supabase
     .from('grn_items')
     .select('item_id, item_name, item_category, item_sub_category, manufacture_name, grn_no, rec_qty, unit_rate, grn_date')
-    .or(`item_name.ilike.%${q}%,item_id.ilike.%${q}%,manufacture_name.ilike.%${q}%`);
+    .or(`item_name.ilike.%${q}%,item_id.ilike.%${q}%,manufacture_name.ilike.%${q}%`)
+    .limit(50000);
 
   if (grnError) return NextResponse.json({ error: grnError.message }, { status: 500 });
 

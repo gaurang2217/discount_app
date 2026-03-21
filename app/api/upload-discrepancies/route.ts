@@ -6,7 +6,8 @@ export async function GET() {
   const { data: discrepancies, error } = await supabase
     .from('upload_discrepancies')
     .select('id, upload_batch, item_id, item_name, grn_no, grn_date, uploaded_manufacture_name, existing_manufacture_name, status, resolved_to, created_at')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(10000);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

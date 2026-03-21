@@ -9,7 +9,7 @@ export async function GET(
   const mfr = decodeURIComponent(id);
 
   // Monthly item-level summary via RPC
-  const { data: monthly, error: monthlyError } = await supabase.rpc('get_manufacturer_monthly', { p_mfr: mfr });
+  const { data: monthly, error: monthlyError } = await supabase.rpc('get_manufacturer_monthly', { p_mfr: mfr }).limit(10000);
   if (monthlyError) {
     console.error('get_manufacturer_monthly error:', monthlyError);
     return NextResponse.json({ error: monthlyError.message }, { status: 500 });
