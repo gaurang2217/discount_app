@@ -34,22 +34,26 @@ export async function GET() {
       fetchAllPages((from, to) =>
         supabase.from('grn_items')
           .select('manufacture_name, grn_date, item_id, rec_qty, unit_rate')
-          .range(from, to) as any
+          .range(from, to) as any,
+        50000
       ),
       fetchAllPages((from, to) =>
         supabase.from('sponsorship_rates')
           .select('manufacture_name, item_id, rate_pct, effective_from')
-          .range(from, to) as any
+          .range(from, to) as any,
+        5000
       ),
       fetchAllPages((from, to) =>
         supabase.from('manufacturer_rates')
           .select('manufacture_name, rate_pct, effective_from')
-          .range(from, to) as any
+          .range(from, to) as any,
+        1000
       ),
       fetchAllPages((from, to) =>
         supabase.from('sponsorship_receipts')
           .select('manufacture_name, month, amount_received, received_date, notes')
-          .range(from, to) as any
+          .range(from, to) as any,
+        5000
       ),
     ]);
 
