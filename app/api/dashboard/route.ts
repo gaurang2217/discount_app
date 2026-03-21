@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 export async function GET() {
-  const { data, error } = await supabase.rpc('get_dashboard_data');
+  const { data, error } = await supabase.rpc('get_dashboard_data').limit(10000);
 
   if (error) {
     console.error('Dashboard RPC error full:', JSON.stringify(error));
