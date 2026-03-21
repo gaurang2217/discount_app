@@ -233,12 +233,16 @@ export async function POST(req: NextRequest) {
     let inserted = 0;
 
     if (toInsert.length > 0) {
-      const { data: insertData, error: insertError } = await supabase
-        .from('grn_items')
-        .upsert(toInsert, { onConflict: 'grn_no,item_id', ignoreDuplicates: true })
-        .select('id');
-      if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
-      inserted = insertData?.length ?? 0;
+      const BATCH = 500;
+      for (let i = 0; i < toInsert.length; i += BATCH) {
+        const chunk = toInsert.slice(i, i + BATCH);
+        const { data: insertData, error: insertError } = await supabase
+          .from('grn_items')
+          .upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: true })
+          .select('id');
+        if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
+        inserted += insertData?.length ?? 0;
+      }
       skipped = toInsert.length - inserted;
     }
 

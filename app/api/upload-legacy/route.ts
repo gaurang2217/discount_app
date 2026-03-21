@@ -204,23 +204,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (toInsert.length > 0) {
-      if (overwrite) {
+      const BATCH = 500;
+      for (let i = 0; i < toInsert.length; i += BATCH) {
+        const chunk = toInsert.slice(i, i + BATCH);
         const { data: insertData, error: insertError } = await supabase
           .from('grn_items')
-          .upsert(toInsert, { onConflict: 'grn_no,item_id' })
+          .upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: !overwrite })
           .select('id');
         if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
-        inserted = insertData?.length ?? 0;
-        skipped = toInsert.length - inserted;
-      } else {
-        const { data: insertData, error: insertError } = await supabase
-          .from('grn_items')
-          .upsert(toInsert, { onConflict: 'grn_no,item_id', ignoreDuplicates: true })
-          .select('id');
-        if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
-        inserted = insertData?.length ?? 0;
-        skipped = toInsert.length - inserted;
+        inserted += insertData?.length ?? 0;
       }
+      skipped = toInsert.length - inserted;
     }
 
     if (discrepancies.length > 0) {
