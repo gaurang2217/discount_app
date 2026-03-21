@@ -37,11 +37,21 @@ export async function POST(req: NextRequest) {
 
   const allItemIds = new Set([item_id, ...(sameNameItems ?? []).map((r: { item_id: string }) => r.item_id)]);
 
+  const newRate = Number(rate_pct) || 0;
+
+  // Fetch existing rates for audit log
+  const { data: existingRates } = await supabase
+    .from('sponsorship_rates')
+    .select('item_id, rate_pct, effective_from')
+    .eq('manufacture_name', manufacture_name)
+    .in('item_id', [...allItemIds]);
+  const existingMap = new Map((existingRates ?? []).map(r => [r.item_id, r]));
+
   const upsertRows = [...allItemIds].map(id => ({
     manufacture_name,
     item_id: id,
     item_name: item_name || '',
-    rate_pct: Number(rate_pct) || 0,
+    rate_pct: newRate,
     effective_from: effective_from || null,
     updated_at: new Date().toISOString(),
   }));
@@ -50,6 +60,27 @@ export async function POST(req: NextRequest) {
     .from('sponsorship_rates')
     .upsert(upsertRows, { onConflict: 'manufacture_name,item_id' });
   if (upsertError) return NextResponse.json({ error: upsertError.message }, { status: 500 });
+
+  // Log changes
+  const logRows = [...allItemIds].map(id => {
+    const old = existingMap.get(id);
+    if (old && old.rate_pct === newRate && old.effective_from === (effective_from || null)) return null;
+    return {
+      change_type: 'item_rate',
+      manufacture_name,
+      item_id: id,
+      item_name: item_name || '',
+      old_rate_pct: old?.rate_pct ?? null,
+      new_rate_pct: newRate,
+      old_effective_from: old?.effective_from ?? null,
+      new_effective_from: effective_from || null,
+      changed_at: new Date().toISOString(),
+    };
+  }).filter(Boolean);
+
+  if (logRows.length > 0) {
+    await supabase.from('rate_change_log').insert(logRows);
+  }
 
   return NextResponse.json({ success: true, applied_to: allItemIds.size });
 }

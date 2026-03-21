@@ -19,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/manufacturers" className="hover:text-blue-200 transition-colors">Manufacturers</Link>
               <Link href="/items" className="hover:text-blue-200 transition-colors">Item Search</Link>
               <Link href="/upload" className="hover:text-blue-200 transition-colors">Upload GRN</Link>
+              <Link href="/audit" className="hover:text-blue-200 transition-colors">Audit Log</Link>
             </div>
           </div>
         </nav>
