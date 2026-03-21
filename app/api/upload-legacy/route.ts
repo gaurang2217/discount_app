@@ -18,7 +18,6 @@ function toStr(val: unknown): string {
 function parseDate(val: unknown): string {
   if (!val) return '';
   const s = String(val).trim();
-  // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
   return s;
 }
@@ -32,6 +31,24 @@ interface AggRow {
   item_category: string; item_sub_category: string; batch_no: string; expiry_date: string;
   rec_qty: number; free_qty: number; total_purchase: number; mrp: number;
   manufacture_name: string; supplier_name: string; department_name: string;
+}
+
+async function fetchExistingInBatches(grnNos: string[]): Promise<Map<string, { manufacture_name: string }>> {
+  const map = new Map<string, { manufacture_name: string }>();
+  const CHUNK = 200;
+  for (let i = 0; i < grnNos.length; i += CHUNK) {
+    const chunk = grnNos.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from('grn_items')
+      .select('grn_no, item_id, manufacture_name')
+      .in('grn_no', chunk)
+      .limit(50000);
+    if (error) throw new Error(`Failed to fetch existing items: ${error.message}`);
+    for (const item of data ?? []) {
+      map.set(`${item.grn_no}||${item.item_id}`, { manufacture_name: item.manufacture_name });
+    }
+  }
+  return map;
 }
 
 export async function POST(req: NextRequest) {
@@ -50,38 +67,32 @@ export async function POST(req: NextRequest) {
     const headers = (rawRows[0] as unknown[]).map(h => toStr(h));
 
     const COL = {
-      grn_no:          colIdx(headers, 'GRN NO'),
-      grn_date:        colIdx(headers, 'TXN DATE'),
-      item_id:         colIdx(headers, 'ITEM CODE'),
-      item_name:       colIdx(headers, 'AKHIL NAME'),
-      batch_no:        colIdx(headers, 'BATCH'),
-      expiry_date:     colIdx(headers, 'EXPIRY'),
-      pack_qty:        colIdx(headers, 'PACK_QTY'),
-      loose_qty:       colIdx(headers, 'LOOSE_QTY'),
-      pack_pur:        colIdx(headers, 'PACK_PUR'),
-      pack_mrp:        colIdx(headers, 'PACK_MRP'),
+      grn_no:           colIdx(headers, 'GRN NO'),
+      grn_date:         colIdx(headers, 'TXN DATE'),
+      item_id:          colIdx(headers, 'ITEM CODE'),
+      item_name:        colIdx(headers, 'AKHIL NAME'),
+      batch_no:         colIdx(headers, 'BATCH'),
+      expiry_date:      colIdx(headers, 'EXPIRY'),
+      pack_qty:         colIdx(headers, 'PACK_QTY'),
+      loose_qty:        colIdx(headers, 'LOOSE_QTY'),
+      pack_pur:         colIdx(headers, 'PACK_PUR'),
+      pack_mrp:         colIdx(headers, 'PACK_MRP'),
       manufacture_name: colIdx(headers, 'MANUFACTURER'),
-      supplier_name:   colIdx(headers, 'VENDOR'),
-      item_category:   colIdx(headers, 'CATEGORY'),
+      supplier_name:    colIdx(headers, 'VENDOR'),
+      item_category:    colIdx(headers, 'CATEGORY'),
       item_sub_category: colIdx(headers, 'SUB CATEGORY'),
-      store_name:      colIdx(headers, 'STORE NAME'),
+      store_name:       colIdx(headers, 'STORE NAME'),
     };
 
-    // Validate required columns
     for (const [name, idx] of Object.entries(COL)) {
       if (idx === -1) return NextResponse.json({ error: `Column not found: ${name}` }, { status: 400 });
     }
 
-    // Pre-load mappings once
     const mappingMap = await loadMappings();
-
     const batchId = randomUUID();
     const overwrite = formData.get('overwrite') === 'true';
 
     let parsed = 0;
-
-    // Pre-aggregate rows by (grn_no, item_id) — legacy sheet has separate rows for paid and free
-    // quantities of the same item in the same GRN. Combine them before inserting.
     const aggMap = new Map<string, AggRow>();
 
     for (const row of rawRows.slice(1)) {
@@ -126,103 +137,94 @@ export async function POST(req: NextRequest) {
     }
 
     const aggRows = [...aggMap.values()];
-    const grnNos = [...new Set(aggRows.map(r => r.grn_no))];
-
-    // Fetch existing items for conflict/discrepancy detection
-    const { data: existingItems, error: fetchError } = await supabase
-      .from('grn_items')
-      .select('grn_no, item_id, manufacture_name')
-      .in('grn_no', grnNos)
-      .limit(50000);
-
-    if (fetchError) throw new Error(`Failed to fetch existing items: ${fetchError.message}`);
-
-    const existingMap = new Map<string, { manufacture_name: string }>();
-    for (const item of existingItems ?? []) {
-      existingMap.set(`${item.grn_no}||${item.item_id}`, { manufacture_name: item.manufacture_name });
-    }
-
-    const toInsert: object[] = [];
-    const discrepancies: {
-      upload_batch: string;
-      item_id: string;
-      item_name: string;
-      grn_no: string;
-      grn_date: string;
-      uploaded_manufacture_name: string;
-      existing_manufacture_name: string;
-      status: string;
-    }[] = [];
+    const toInsert = aggRows.map(agg => ({
+      grn_no: agg.grn_no,
+      item_id: agg.item_id,
+      grn_date: agg.grn_date,
+      item_name: agg.item_name,
+      item_category: agg.item_category,
+      item_sub_category: agg.item_sub_category,
+      batch_no: agg.batch_no,
+      expiry_date: agg.expiry_date,
+      unit_name: 'PACK',
+      rec_qty: agg.rec_qty,
+      free_qty: agg.free_qty,
+      unit_rate: agg.rec_qty > 0 ? agg.total_purchase / agg.rec_qty : 0,
+      mrp: agg.mrp,
+      manufacture_name: agg.manufacture_name,
+      supplier_name: agg.supplier_name,
+      department_name: agg.department_name,
+      upload_batch: batchId,
+    }));
 
     let inserted = 0;
     let skipped = 0;
     let already_exists = 0;
     let discrepancyCount = 0;
 
-    for (const agg of aggRows) {
-      const unit_rate = agg.rec_qty > 0 ? agg.total_purchase / agg.rec_qty : 0;
-      const key = `${agg.grn_no}||${agg.item_id}`;
-      const existing = existingMap.get(key);
-
-      if (existing && !overwrite) {
-        if (existing.manufacture_name && existing.manufacture_name !== agg.manufacture_name) {
-          discrepancies.push({
-            upload_batch: batchId,
-            item_id: agg.item_id,
-            item_name: agg.item_name,
-            grn_no: agg.grn_no,
-            grn_date: agg.grn_date,
-            uploaded_manufacture_name: agg.manufacture_name,
-            existing_manufacture_name: existing.manufacture_name,
-            status: 'pending',
-          });
-          discrepancyCount++;
-        } else {
-          already_exists++;
-        }
-        continue;
-      }
-
-      toInsert.push({
-        grn_no: agg.grn_no,
-        item_id: agg.item_id,
-        grn_date: agg.grn_date,
-        item_name: agg.item_name,
-        item_category: agg.item_category,
-        item_sub_category: agg.item_sub_category,
-        batch_no: agg.batch_no,
-        expiry_date: agg.expiry_date,
-        unit_name: 'PACK',
-        rec_qty: agg.rec_qty,
-        free_qty: agg.free_qty,
-        unit_rate,
-        mrp: agg.mrp,
-        manufacture_name: agg.manufacture_name,
-        supplier_name: agg.supplier_name,
-        department_name: agg.department_name,
-        upload_batch: batchId,
-      });
-    }
-
-    if (toInsert.length > 0) {
+    if (overwrite) {
+      // Overwrite mode: upsert everything, update existing rows
       const BATCH = 500;
       for (let i = 0; i < toInsert.length; i += BATCH) {
         const chunk = toInsert.slice(i, i + BATCH);
-        const { data: insertData, error: insertError } = await supabase
+        const { error: upsertError } = await supabase
           .from('grn_items')
-          .upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: !overwrite })
-          .select('id');
-        if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
-        inserted += insertData?.length ?? 0;
+          .upsert(chunk, { onConflict: 'grn_no,item_id' });
+        if (upsertError) throw new Error(`Insert failed: ${upsertError.message}`);
       }
-      skipped = toInsert.length - inserted;
-    }
+      inserted = toInsert.length;
+    } else {
+      // Non-overwrite: check existing to detect discrepancies, skip duplicates
+      const grnNos = [...new Set(aggRows.map(r => r.grn_no))];
+      const existingMap = await fetchExistingInBatches(grnNos);
 
-    if (discrepancies.length > 0) {
-      const { error: discError } = await supabase
-        .from('upload_discrepancies')
-        .insert(discrepancies);
-      if (discError) throw new Error(`Discrepancy insert failed: ${discError.message}`);
+      const toInsertNew: object[] = [];
+      const discrepancies: object[] = [];
+
+      for (const row of toInsert) {
+        const key = `${row.grn_no}||${row.item_id}`;
+        const existing = existingMap.get(key);
+        if (existing) {
+          if (existing.manufacture_name && existing.manufacture_name !== row.manufacture_name) {
+            discrepancies.push({
+              upload_batch: batchId,
+              item_id: row.item_id,
+              item_name: row.item_name,
+              grn_no: row.grn_no,
+              grn_date: row.grn_date,
+              uploaded_manufacture_name: row.manufacture_name,
+              existing_manufacture_name: existing.manufacture_name,
+              status: 'pending',
+            });
+            discrepancyCount++;
+          } else {
+            already_exists++;
+          }
+          continue;
+        }
+        toInsertNew.push(row);
+      }
+
+      if (toInsertNew.length > 0) {
+        const BATCH = 500;
+        for (let i = 0; i < toInsertNew.length; i += BATCH) {
+          const chunk = toInsertNew.slice(i, i + BATCH);
+          const { data: insertData, error: insertError } = await supabase
+            .from('grn_items')
+            .upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: true })
+            .select('id');
+          if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
+          inserted += insertData?.length ?? 0;
+        }
+        skipped = toInsertNew.length - inserted;
+      }
+
+      if (discrepancies.length > 0) {
+        const { error: discError } = await supabase
+          .from('upload_discrepancies')
+          .insert(discrepancies);
+        if (discError) throw new Error(`Discrepancy insert failed: ${discError.message}`);
+      }
     }
 
     const { error: logError } = await supabase

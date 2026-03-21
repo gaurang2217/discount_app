@@ -178,17 +178,19 @@ export async function POST(req: NextRequest) {
 
     // Fetch all existing items for conflict/discrepancy detection
     const grnNos = [...new Set(rows.map(r => r.grn_no))];
-    const { data: existingItems, error: fetchError } = await supabase
-      .from('grn_items')
-      .select('grn_no, item_id, manufacture_name')
-      .in('grn_no', grnNos)
-      .limit(50000);
-
-    if (fetchError) throw new Error(`Failed to fetch existing items: ${fetchError.message}`);
-
     const existingMap = new Map<string, { manufacture_name: string }>();
-    for (const item of existingItems ?? []) {
-      existingMap.set(`${item.grn_no}||${item.item_id}`, { manufacture_name: item.manufacture_name });
+    const GRN_CHUNK = 200;
+    for (let i = 0; i < grnNos.length; i += GRN_CHUNK) {
+      const chunk = grnNos.slice(i, i + GRN_CHUNK);
+      const { data: existingItems, error: fetchError } = await supabase
+        .from('grn_items')
+        .select('grn_no, item_id, manufacture_name')
+        .in('grn_no', chunk)
+        .limit(50000);
+      if (fetchError) throw new Error(`Failed to fetch existing items: ${fetchError.message}`);
+      for (const item of existingItems ?? []) {
+        existingMap.set(`${item.grn_no}||${item.item_id}`, { manufacture_name: item.manufacture_name });
+      }
     }
 
     const toInsert: (GrnRow & { upload_batch: string })[] = [];
