@@ -62,9 +62,10 @@ export default function ManufacturerDetail() {
   const [savingReceipt, setSavingReceipt] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (bustCache = false) => {
     setLoading(true);
-    const res = await fetch(`/api/manufacturers/${encodeURIComponent(mfr)}`);
+    const url = `/api/manufacturers/${encodeURIComponent(mfr)}${bustCache ? `?t=${Date.now()}` : ''}`;
+    const res = await fetch(url);
     const d = await res.json();
     setMonthly(d.monthly || []);
     setRates(d.rates || []);
@@ -123,7 +124,7 @@ export default function ManufacturerDetail() {
       });
       if (!res.ok) throw new Error(await res.text());
       setEditingCompanyRate(false);
-      load();
+      load(true);
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -149,7 +150,7 @@ export default function ManufacturerDetail() {
       });
       if (!res.ok) throw new Error(await res.text());
       setEditingRate(null);
-      load();
+      load(true);
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -176,7 +177,7 @@ export default function ManufacturerDetail() {
       });
       if (!res.ok) throw new Error(await res.text());
       setEditingReceipt(null);
-      load();
+      load(true);
     } catch (e) {
       setSaveError(String(e));
     } finally {
