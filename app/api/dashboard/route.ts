@@ -2,17 +2,28 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 async function fetchAllPages<T>(
-  queryFn: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>
+  queryFn: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+  estimatedTotal = 2000
 ): Promise<T[]> {
   const PAGE = 1000;
-  const results: T[] = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await queryFn(from, from + PAGE - 1);
+  // Fetch first page to get actual count, then fetch remaining pages in parallel
+  const { data: first, error: firstError } = await queryFn(0, PAGE - 1);
+  if (firstError) throw new Error(firstError.message);
+  const firstPage = first ?? [];
+  if (firstPage.length < PAGE) return firstPage;
+
+  // Fetch remaining pages in parallel
+  const maxPages = Math.ceil(estimatedTotal / PAGE);
+  const pagePromises = [];
+  for (let p = 1; p < maxPages; p++) {
+    pagePromises.push(queryFn(p * PAGE, (p + 1) * PAGE - 1));
+  }
+  const remaining = await Promise.all(pagePromises);
+  const results = [...firstPage];
+  for (const { data, error } of remaining) {
     if (error) throw new Error(error.message);
     results.push(...(data ?? []));
     if ((data?.length ?? 0) < PAGE) break;
-    from += PAGE;
   }
   return results;
 }
@@ -104,7 +115,9 @@ export async function GET() {
       };
     }).sort((a, b) => b.month.localeCompare(a.month) || a.manufacture_name.localeCompare(b.manufacture_name));
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=300' },
+    });
   } catch (err) {
     console.error('Dashboard error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });

@@ -52,5 +52,7 @@ export async function GET(
     rates: ratesData ?? [],
     receipts: receiptsData ?? [],
     companyRate: companyRateData ?? null,
+  }, {
+    headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=300' },
   });
 }
