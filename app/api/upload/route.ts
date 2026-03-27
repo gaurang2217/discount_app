@@ -180,13 +180,15 @@ export async function POST(req: NextRequest) {
     const grnNos = [...new Set(rows.map(r => r.grn_no))];
     const existingMap = new Map<string, { manufacture_name: string }>();
     const GRN_CHUNK = 200;
+    const chunkPromises = [];
     for (let i = 0; i < grnNos.length; i += GRN_CHUNK) {
       const chunk = grnNos.slice(i, i + GRN_CHUNK);
-      const { data: existingItems, error: fetchError } = await supabase
-        .from('grn_items')
-        .select('grn_no, item_id, manufacture_name')
-        .in('grn_no', chunk)
-        .limit(50000);
+      chunkPromises.push(
+        supabase.from('grn_items').select('grn_no, item_id, manufacture_name').in('grn_no', chunk).limit(50000)
+      );
+    }
+    const chunkResults = await Promise.all(chunkPromises);
+    for (const { data: existingItems, error: fetchError } of chunkResults) {
       if (fetchError) throw new Error(`Failed to fetch existing items: ${fetchError.message}`);
       for (const item of existingItems ?? []) {
         existingMap.set(`${item.grn_no}||${item.item_id}`, { manufacture_name: item.manufacture_name });
@@ -237,12 +239,15 @@ export async function POST(req: NextRequest) {
 
     if (toInsert.length > 0) {
       const BATCH = 500;
+      const insertPromises = [];
       for (let i = 0; i < toInsert.length; i += BATCH) {
         const chunk = toInsert.slice(i, i + BATCH);
-        const { data: insertData, error: insertError } = await supabase
-          .from('grn_items')
-          .upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: true })
-          .select('id');
+        insertPromises.push(
+          supabase.from('grn_items').upsert(chunk, { onConflict: 'grn_no,item_id', ignoreDuplicates: true }).select('id')
+        );
+      }
+      const insertResults = await Promise.all(insertPromises);
+      for (const { data: insertData, error: insertError } of insertResults) {
         if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
         inserted += insertData?.length ?? 0;
       }

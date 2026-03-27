@@ -5,19 +5,20 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get('q')?.trim() || '';
 
-  // Fetch grn_items with search filter
-  const { data: grnData, error: grnError } = await supabase
-    .from('grn_items')
-    .select('item_id, item_name, item_category, item_sub_category, manufacture_name, grn_no, rec_qty, unit_rate, grn_date')
-    .or(`item_name.ilike.%${q}%,item_id.ilike.%${q}%,manufacture_name.ilike.%${q}%`)
-    .limit(50000);
+  // Fetch grn_items and sponsorship rates in parallel
+  const [
+    { data: grnData, error: grnError },
+    { data: ratesData },
+  ] = await Promise.all([
+    supabase
+      .from('grn_items')
+      .select('item_id, item_name, item_category, item_sub_category, manufacture_name, grn_no, rec_qty, unit_rate, grn_date')
+      .or(`item_name.ilike.%${q}%,item_id.ilike.%${q}%,manufacture_name.ilike.%${q}%`)
+      .limit(50000),
+    supabase.from('sponsorship_rates').select('manufacture_name, item_id, rate_pct'),
+  ]);
 
   if (grnError) return NextResponse.json({ error: grnError.message }, { status: 500 });
-
-  // Fetch all relevant sponsorship rates
-  const { data: ratesData } = await supabase
-    .from('sponsorship_rates')
-    .select('manufacture_name, item_id, rate_pct');
 
   const rateMap = new Map<string, number>();
   for (const r of ratesData ?? []) {
