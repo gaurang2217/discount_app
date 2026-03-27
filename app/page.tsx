@@ -97,7 +97,7 @@ export default function Dashboard() {
       r => r.manufacture_name === editRow.manufacture_name && r.month === editRow.month
     )?.sponsorship_due || 0;
 
-    await fetch("/api/receipts", {
+    const res = await fetch("/api/receipts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -111,7 +111,20 @@ export default function Dashboard() {
     });
     setSaving(false);
     setEditRow(null);
-    load();
+    if (res.ok) {
+      setData(prev => prev.map(r =>
+        r.manufacture_name === editRow.manufacture_name && r.month === editRow.month
+          ? {
+              ...r,
+              amount_received: editRow.amount_received !== "" ? Number(editRow.amount_received) : null,
+              received_date: editRow.received_date || null,
+              notes: editRow.notes || null,
+            }
+          : r
+      ));
+    } else {
+      load();
+    }
   }
 
   return (
